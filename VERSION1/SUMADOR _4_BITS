@@ -1,0 +1,38 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity SUMADOR_4BITS is
+    Port ( A    : in  STD_LOGIC_VECTOR(3 downto 0);  -- Entradas de 4 bits A
+           B    : in  STD_LOGIC_VECTOR(3 downto 0);  -- Entradas de 4 bits B
+           cin  : in  STD_LOGIC;                      -- Entrada de acarreo
+           S    : out STD_LOGIC_VECTOR(3 downto 0);    -- Resultado de la suma
+           cout : out STD_LOGIC);                      -- Acarreo de salida
+end SUMADOR_4BITS;
+
+architecture Behavioral of SUMADOR_4BITS is
+
+    component FULLADDER
+        Port ( A   : in  STD_LOGIC;
+               B   : in  STD_LOGIC;
+               cin : in  STD_LOGIC;
+               s   : out STD_LOGIC;
+               cout: out STD_LOGIC);
+    end component;
+
+    signal c1, c2, c3 : STD_LOGIC;
+
+begin
+
+    -- El primer Full Adder recibe cin
+    FA0: FULLADDER port map (A(0), B(0), cin, S(0), c1);
+
+    -- El segundo Full Adder recibe c1 como acarreo de entrada
+    FA1: FULLADDER port map (A(1), B(1), c1, S(1), c2);
+
+    -- El tercer Full Adder recibe c2 como acarreo de entrada
+    FA2: FULLADDER port map (A(2), B(2), c2, S(2), c3);
+
+    -- El cuarto Full Adder recibe c3 como acarreo de entrada
+    FA3: FULLADDER port map (A(3), B(3), c3, S(3), cout);
+
+end Behavioral;
