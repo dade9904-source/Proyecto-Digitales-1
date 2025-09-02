@@ -1,0 +1,108 @@
+-- ============================================================
+-- Testbench para mult4x4_1164 (A y B de 0 a 9)
+-- ============================================================
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity tb_mult4x4 is
+end entity;
+
+architecture tb of tb_mult4x4 is
+  -- DUT
+  component mult4x4_1164
+    port(
+      A : in  STD_LOGIC_VECTOR(3 downto 0);
+      B : in  STD_LOGIC_VECTOR(3 downto 0);
+      P : out STD_LOGIC_VECTOR(7 downto 0)
+    );
+  end component;
+
+  signal A    : STD_LOGIC_VECTOR(3 downto 0) := (others => '0');
+  signal B    : STD_LOGIC_VECTOR(3 downto 0) := (others => '0');
+  signal P    : STD_LOGIC_VECTOR(7 downto 0);
+
+  -- ========= Utilidades SIN numeric_std =========
+  function to_slv4(n : integer) return STD_LOGIC_VECTOR is
+    variable v : STD_LOGIC_VECTOR(3 downto 0);
+  begin
+    for i in 0 to 3 loop
+      if ((n / (2**i)) mod 2) = 1 then
+        v(i) := '1';
+      else
+        v(i) := '0';
+      end if;
+    end loop;
+    return v;
+  end function;
+
+  function to_slv8(n : integer) return STD_LOGIC_VECTOR is
+    variable v : STD_LOGIC_VECTOR(7 downto 0);
+  begin
+    for i in 0 to 7 loop
+      if ((n / (2**i)) mod 2) = 1 then
+        v(i) := '1';
+      else
+        v(i) := '0';
+      end if;
+    end loop;
+    return v;
+  end function;
+
+  function slv8_to_int(s : STD_LOGIC_VECTOR(7 downto 0)) return integer is
+    variable acc : integer := 0;
+  begin
+    for i in 0 to 7 loop
+      if s(i) = '1' then
+        acc := acc + 2**i;
+      end if;
+    end loop;
+    return acc;
+  end function;
+
+begin
+  -- Instancia del DUT
+  DUT: mult4x4_1164
+    port map (
+      A => A,
+      B => B,
+      P => P
+    );
+
+  -- Estímulos y verificación
+  stim_proc : process
+    variable ai, bi  : integer;
+    variable exp_val : integer;
+    variable errors  : integer := 0;
+  begin
+    -- Solo 0..9
+    for ai in 0 to 9 loop
+      for bi in 0 to 9 loop
+        A <= to_slv4(ai);
+        B <= to_slv4(bi);
+        wait for 10 ns;
+
+        exp_val := ai * bi;  -- cálculo en entero (0..81)
+
+        assert P = to_slv8(exp_val)
+          report "FALLO: A=" & integer'image(ai) &
+                 " B=" & integer'image(bi) &
+                 " esperado=" & integer'image(exp_val) &
+                 " obtenido=" & integer'image(slv8_to_int(P))
+          severity error;
+
+        if P /= to_slv8(exp_val) then
+          errors := errors + 1;
+        end if;
+      end loop;
+    end loop;
+
+    if errors = 0 then
+      assert false report "OK: 100 casos verificados, sin errores." severity note;
+    else
+      assert false report "Completado con " & integer'image(errors) & " errores." severity warning;
+    end if;
+
+    wait;
+  end process;
+
+end architecture;
