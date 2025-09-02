@@ -1,0 +1,219 @@
+-- ============================================================
+-- PROYECTO (solo Suma y Resta) con impresión en 7 segmentos
+-- - Suma: sin "sumar 6"; separación de decenas por resta sucesiva (−10)
+-- - Resta: comparador combinacional (B>A) para signo; magnitud por (mayor-menor)
+-- - Solo combinacional, sin numeric_std, sin "*"
+-- ============================================================
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity ProyectoDigitales is
+  port(
+    A        : in  STD_LOGIC_VECTOR(3 downto 0);
+    B        : in  STD_LOGIC_VECTOR(3 downto 0);
+    Operator : in  STD_LOGIC_VECTOR(1 downto 0); -- 00 Para la Suma, 10 Para La Resta
+    sseg1    : out STD_LOGIC_VECTOR(6 downto 0); -- Unidades / Dígito más a la derecha
+    sseg2    : out STD_LOGIC_VECTOR(6 downto 0); -- Segundo dígito: decena o signo o apagado
+    sseg3    : out STD_LOGIC_VECTOR(6 downto 0); -- Muestra B
+    sseg4    : out STD_LOGIC_VECTOR(6 downto 0)  -- Muestra A
+  );
+end entity;
+
+architecture rtl of ProyectoDigitales is
+  -- Simplemente realizamos una indexación para el 7 segmentos donde quede más fácil y legible para el código
+  constant DIG_0     : std_logic_vector(6 downto 0) := "1000000";
+  constant DIG_1     : std_logic_vector(6 downto 0) := "1111001";
+  constant DIG_2     : std_logic_vector(6 downto 0) := "0100100";
+  constant DIG_3     : std_logic_vector(6 downto 0) := "0110000";
+  constant DIG_4     : std_logic_vector(6 downto 0) := "0011001";
+  constant DIG_5     : std_logic_vector(6 downto 0) := "0010010";
+  constant DIG_6     : std_logic_vector(6 downto 0) := "0000010";
+  constant DIG_7     : std_logic_vector(6 downto 0) := "1111000";
+  constant DIG_8     : std_logic_vector(6 downto 0) := "0000000";
+  constant DIG_9     : std_logic_vector(6 downto 0) := "0010000";
+  constant DIG_E     : std_logic_vector(6 downto 0) := "0000110";
+  constant DIG_OFF   : std_logic_vector(6 downto 0) := "1111111";
+  constant DIG_MINUS : std_logic_vector(6 downto 0) := "0111111";
+
+  -- Definimos el componente del sumador de 4 bits
+  component SUMADOR_4BITS
+    port(
+      A    : in  STD_LOGIC_VECTOR(3 downto 0);
+      B    : in  STD_LOGIC_VECTOR(3 downto 0);
+      cin  : in  STD_LOGIC;
+      S    : out STD_LOGIC_VECTOR(3 downto 0);
+      cout : out STD_LOGIC
+    );
+  end component;
+
+  -- Estas son las variables que determinan en qué función de la calculadora nos encontramos
+  signal IsAdd, IsSub : std_logic;
+
+  -- Estas variables se encargarán de mostrar el error al ingresar un número A o B inválido
+  signal BadA, BadB, ShowErr : std_logic;
+
+  -- ====== SUMA (binaria cruda 0..19) ======
+  -- SumS es la suma binaria A+B (nibble low)
+  -- SumC es el carry de la suma (bit 4), para armar el valor 0..19
+  -- Luego se hace separación de decenas por resta sucesiva de 10 (−10) una sola vez
+  signal SumS : std_logic_vector(3 downto 0);
+  signal SumC : std_logic;
+  -- Para separar decenas por −10: R0L/R0H es la representación "nibble low/high" del valor 0..19
+  signal R0L, R0H : std_logic_vector(3 downto 0);
+  signal S10L_s, S10H_s : std_logic_vector(3 downto 0);
+  signal c10L_s, c10H_s : std_logic;
+  signal UnitsSum : std_logic_vector(3 downto 0);
+  signal TensSum  : std_logic_vector(3 downto 0);
+
+  -- ====== RESTA (magnitud y signo por comparador) ======
+  -- Comparatoro combinacional puro: BgtA='1' si B>A
+  -- NegSub será '1' cuando estemos en resta y B>A (debe mostrar signo '-')
+  signal BgtA, NegSub : std_logic;
+
+  -- Magnitud |A-B| sacando (mayor - menor) con el sumador:
+  --  - DiffAB = A - B  = A + (~B) + 1
+  --  - DiffBA = B - A  = B + (~A) + 1
+  --  Luego se selecciona por mux según BgtA.
+  signal Binv, Ainv : std_logic_vector(3 downto 0);
+  signal DiffAB, DiffBA, UnitsSub : std_logic_vector(3 downto 0);
+  signal dumpC1, dumpC2 : std_logic;
+
+  -- BCD final por operación (solo Add/Sub)
+  signal TensBCD, UnitsBCD : std_logic_vector(3 downto 0);
+
+  -- Funciones
+  function ge10_4b(x: std_logic_vector(3 downto 0)) return std_logic is
+  begin
+    return (x(3) and (x(2) or x(1)));
+  end function;
+
+  function dig_to_seg(d: std_logic_vector(3 downto 0)) return std_logic_vector is
+  begin
+    case d is
+      when "0000" => return DIG_0;
+      when "0001" => return DIG_1;
+      when "0010" => return DIG_2;
+      when "0011" => return DIG_3;
+      when "0100" => return DIG_4;
+      when "0101" => return DIG_5;
+      when "0110" => return DIG_6;
+      when "0111" => return DIG_7;
+      when "1000" => return DIG_8;
+      when "1001" => return DIG_9;
+      when others => return DIG_E;
+    end case;
+  end function;
+
+  -- ==============================
+  -- Comparador combinacional B>A
+  --  - eq3..0 es la cadena de igualdad por bit alto a bajo
+  --  - gt* son términos A>B; usamos esos para derivar B>A invirtiendo papeles
+  -- ==============================
+  signal eq3, eq2, eq1, eq0 : std_logic;
+  signal BgtA_t3, BgtA_t2, BgtA_t1, BgtA_t0 : std_logic;
+begin
+  -- Selector: 00 suma, 10 resta
+  IsAdd <= '1' when Operator="00" else '0';
+  IsSub <= '1' when Operator="10" else '0';
+
+  -- Validación entradas (0..9)
+  BadA <= ge10_4b(A);
+  BadB <= ge10_4b(B);
+  ShowErr <= BadA or BadB;
+
+  -- ===========================
+  -- ===== SUMA (A+B crudo) ====
+  -- ===========================
+  SUMA0 : SUMADOR_4BITS port map(A=>A, B=>B, cin=>'0', S=>SumS, cout=>SumC);
+
+  -- Representación "nibble alto/bajo" del valor 0..19:
+  --  - R0L = bits [3:0] de la suma
+  --  - R0H = {000, SumC} (bit alto con el carry)
+  R0L <= SumS;
+  R0H <= ("000" & SumC);
+
+  -- Separación por resta sucesiva de 10 (−10) para sacar decenas y unidades:
+  --  - Intentamos restar 10 con dos nibbles: low y high (carry encadenado)
+  --  - Si c10H_s='1' => sí se pudo restar 10 (valor >=10): entonces
+  --      UnitsSum = S10L_s ; TensSum = "0001"
+  --    Si no, UnitsSum = R0L ; TensSum = "0000"
+  SUB10L_S: SUMADOR_4BITS port map(A=>R0L, B=>"0101", cin=>'1',   S=>S10L_s, cout=>c10L_s);  -- low: ~1010 + 1
+  SUB10H_S: SUMADOR_4BITS port map(A=>R0H, B=>"1111", cin=>c10L_s, S=>S10H_s, cout=>c10H_s); -- high: ~0000
+  UnitsSum <= S10L_s when c10H_s='1' else R0L;
+  TensSum  <= "0001" when c10H_s='1' else "0000";
+
+  -- ==========================================
+  -- ===== RESTA (comparador + magnitud) ======
+  -- ==========================================
+  -- Comparador combinacional puro para B>A:
+  --  eq3 = ~(A3 xor B3); eq2 = eq3 & ~(A2 xor B2); etc.
+  eq3 <= not (A(3) xor B(3));
+  eq2 <= eq3 and not (A(2) xor B(2));
+  eq1 <= eq2 and not (A(1) xor B(1));
+  eq0 <= eq1 and not (A(0) xor B(0)); -- (no lo usamos directo, pero completa la cadena)
+
+  -- Términos B>A por prioridad de bit (MSB..LSB):
+  --  BgtA_t3 = (B3 & ~A3)
+  --  BgtA_t2 = (eq3) & (B2 & ~A2)
+  --  BgtA_t1 = (eq3 & eq2) & (B1 & ~A1)
+  --  BgtA_t0 = (eq3 & eq2 & eq1) & (B0 & ~A0)
+  BgtA_t3 <= (B(3) and (not A(3)));
+  BgtA_t2 <= (eq3) and (B(2) and (not A(2)));
+  BgtA_t1 <= (eq3 and eq2) and (B(1) and (not A(1)));
+  BgtA_t0 <= (eq3 and eq2 and eq1) and (B(0) and (not A(0)));
+
+  -- BgtA es '1' si cualquiera de esos términos es '1'
+  BgtA <= BgtA_t3 or BgtA_t2 or BgtA_t1 or BgtA_t0;
+
+  -- NegSub: bandera de "mostrar signo" solo cuando estamos en resta y B>A
+  NegSub <= IsSub and BgtA;
+
+  -- Magnitud |A-B| sin enmascaramientos:
+  --  - Calculamos en paralelo A-B y B-A con el mismo sumador (complemento a 2)
+  --  - Luego seleccionamos una u otra según BgtA
+  Binv <= not B;
+  Ainv <= not A;
+
+  -- A - B = A + (~B) + 1
+  SUB_AB: SUMADOR_4BITS port map(A=>A, B=>Binv, cin=>'1', S=>DiffAB, cout=>dumpC1);
+  -- B - A = B + (~A) + 1
+  SUB_BA: SUMADOR_4BITS port map(A=>B, B=>Ainv, cin=>'1', S=>DiffBA, cout=>dumpC2);
+
+  -- UnitsSub es la magnitud absoluta |A-B| (0..9) eligiendo (mayor - menor)
+  UnitsSub <= DiffBA when BgtA='1' else DiffAB;
+
+  -- ==========================================
+  -- ===== Selección final de BCD a imprimir ==
+  -- ==========================================
+  -- TensBCD:
+  --  - Suma: toma la decena obtenida por resta de 10 (TensSum = 0 o 1)
+  --  - Resta: no hay decenas (máximo |A-B|=9), así que queda "0000"
+  TensBCD <= TensSum when IsAdd='1' else "0000";
+
+  -- UnitsBCD:
+  --  - Suma: UnitsSum (unidades tras la posible resta de 10)
+  --  - Resta: UnitsSub (magnitud |A-B|)
+  UnitsBCD <= UnitsSum when IsAdd='1' else UnitsSub;
+
+  -- ===============================
+  -- ===== Salidas 7 segmentos =====
+  -- ===============================
+  -- sseg4: muestra A o 'E' si hay error de entrada
+  sseg4 <= dig_to_seg(A) when ShowErr='0' else DIG_E;  -- izquierda
+
+  -- sseg3: muestra B o 'E' si hay error de entrada
+  sseg3 <= dig_to_seg(B) when ShowErr='0' else DIG_E;
+
+  -- sseg2: prioridad de lo que se muestra (de arriba hacia abajo):
+  --   1) Error (DIG_E) si ShowErr='1'
+  --   2) Signo negativo (DIG_MINUS) si Resta y NegSub='1'
+  --   3) Decena de Suma (si TensBCD="0001")
+  --   4) Apagado (DIG_OFF) en otros casos
+  sseg2 <= DIG_E                 when ShowErr='1' else
+           DIG_MINUS             when (IsSub='1' and NegSub='1') else
+           dig_to_seg(TensBCD)   when (IsAdd='1' and TensBCD="0001") else
+           DIG_OFF;
+
+  -- sseg1: muestra unidades del resultado, o 'E' si hay error de entrada
+  sseg1 <= dig_to_seg(UnitsBCD) when ShowErr='0' else DIG_E; -- derecha
+end architecture;
