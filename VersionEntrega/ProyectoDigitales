@@ -1,0 +1,261 @@
+-- ============================================================
+-- PROYECTO (Suma, Resta y Multiplicación) con impresión en 7 segmentos
+-- - Suma: separación de decenas por resta sucesiva (−10)  [SIN +6]
+-- - Resta: enmascaramiento (XOR) + carry-out para signo; magnitud por C2
+-- - Mult: mult4x4_1164 externo; bin->BCD por restas 80/40/20/10
+-- - Solo combinacional, sin numeric_std, sin "*"
+-- ============================================================
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity ProyectoDigitales is
+  port(
+    A        : in  STD_LOGIC_VECTOR(3 downto 0);
+    B        : in  STD_LOGIC_VECTOR(3 downto 0);
+    Operator : in  STD_LOGIC_VECTOR(1 downto 0); -- 00 Suma, 10 Resta, x1 Multiplicación
+    sseg1    : out STD_LOGIC_VECTOR(6 downto 0); -- Unidades / Dígito más a la derecha
+    sseg2    : out STD_LOGIC_VECTOR(6 downto 0); -- Decenas / Signo / Apagado
+    sseg3    : out STD_LOGIC_VECTOR(6 downto 0); -- Muestra B
+    sseg4    : out STD_LOGIC_VECTOR(6 downto 0)  -- Muestra A
+  );
+end entity;
+
+architecture rtl of ProyectoDigitales is
+  -- Simplemente realizamos una indexación para el 7 segmentos donde quede más fácil y legible para el código
+  constant DIG_0     : std_logic_vector(6 downto 0) := "1000000";
+  constant DIG_1     : std_logic_vector(6 downto 0) := "1111001";
+  constant DIG_2     : std_logic_vector(6 downto 0) := "0100100";
+  constant DIG_3     : std_logic_vector(6 downto 0) := "0110000";
+  constant DIG_4     : std_logic_vector(6 downto 0) := "0011001";
+  constant DIG_5     : std_logic_vector(6 downto 0) := "0010010";
+  constant DIG_6     : std_logic_vector(6 downto 0) := "0000010";
+  constant DIG_7     : std_logic_vector(6 downto 0) := "1111000";
+  constant DIG_8     : std_logic_vector(6 downto 0) := "0000000";
+  constant DIG_9     : std_logic_vector(6 downto 0) := "0010000";
+  constant DIG_E     : std_logic_vector(6 downto 0) := "0000110";
+  constant DIG_OFF   : std_logic_vector(6 downto 0) := "1111111";
+  constant DIG_MINUS : std_logic_vector(6 downto 0) := "0111111";
+
+  -- Definimos el componente del sumador de 4 bits
+  component SUMADOR_4BITS
+    port(
+      A    : in  STD_LOGIC_VECTOR(3 downto 0);
+      B    : in  STD_LOGIC_VECTOR(3 downto 0);
+      cin  : in  STD_LOGIC;
+      S    : out STD_LOGIC_VECTOR(3 downto 0);
+      cout : out STD_LOGIC
+    );
+  end component;
+
+  -- Definimos el multiplicador 4x4 (archivo externo que irás reemplazando)
+  component mult4x4_1164
+    port(
+      A : in  STD_LOGIC_VECTOR(3 downto 0);
+      B : in  STD_LOGIC_VECTOR(3 downto 0);
+      P : out STD_LOGIC_VECTOR(7 downto 0)
+    );
+  end component;
+
+  -- Estas son las variables que determinan en qué función de la calculadora nos encontramos
+  signal IsAdd, IsSub, IsMul : std_logic;
+
+  -- Estas variables se encargarán de mostrar el error al ingresar un número A o B inválido (0..9)
+  signal BadA, BadB, ShowErr : std_logic;
+
+  -- ====== SUMA (binaria cruda 0..19) por resta sucesiva (−10) ======
+  -- SumS es la suma binaria A+B (nibble low)
+  -- SumC es el carry de la suma (bit 4), para armar el valor 0..19
+  -- R0L/R0H forma el “valor” como nibbles (low=SumS, high={000,SumC})
+  -- Intento de restar 10 una sola vez: si se puede, TensSum=1 y UnitsSum=S10L_s
+  signal SumS : std_logic_vector(3 downto 0);
+  signal SumC : std_logic;
+  signal R0L, R0H : std_logic_vector(3 downto 0);
+  signal S10L_s, S10H_s : std_logic_vector(3 downto 0);
+  signal c10L_s, c10H_s : std_logic;
+  signal UnitsSum : std_logic_vector(3 downto 0);
+  signal TensSum  : std_logic_vector(3 downto 0);
+
+  -- ====== RESTA (enmascaramiento + carry para signo) ======
+  -- B_inv es B negado para hacer A + (~B) + 1
+  -- DiffS es el resultado binario de esa suma (A-B en C2)
+  -- DiffC es el carry-out; si DiffC='0' entonces A<B (resultado negativo)
+  -- NegSub indica si hay que marcar signo '-'
+  -- DiffXor aplica el enmascaramiento: invierte DiffS si NegSub='1'
+  -- UnitsSub es la magnitud |A-B| terminando el complemento a 2 (sumando NegSub)
+  signal B_inv    : std_logic_vector(3 downto 0);
+  signal DiffS, UnitsSub : std_logic_vector(3 downto 0);
+  signal DiffC, NegSub : std_logic;
+  signal DiffXor : std_logic_vector(3 downto 0);
+
+  -- ====== MULTIPLICACIÓN 4x4 ======
+  -- M es el producto binario (8 bits) desde mult4x4_1164
+  -- MulUnits/MulTens son las cifras BCD del producto 0..81 (por restas 80/40/20/10)
+  signal M : std_logic_vector(7 downto 0);
+  signal MulUnits, MulTens : std_logic_vector(3 downto 0);
+
+  -- Bin->BCD por restas 80/40/20/10 (pipeline de restas controladas)
+  signal R1L,R1H,R2L,R2H,R3L,R3H,R4L : std_logic_vector(3 downto 0);
+  signal S80L,S80H,S40L,S40H,S20L,S20H,S10L : std_logic_vector(3 downto 0);
+  signal c80L,c80H,c40L,c40H,c20L,c20H,c10L,c10H : std_logic;
+
+  -- BCD final por operación (lo que se imprime)
+  signal TensBCD, UnitsBCD : std_logic_vector(3 downto 0);
+
+  -- Función: detectar ≥10 en un nibble
+  function ge10_4b(x: std_logic_vector(3 downto 0)) return std_logic is
+  begin
+    return (x(3) and (x(2) or x(1)));
+  end function;
+
+  -- Función: nibble BCD a 7 segmentos
+  function dig_to_seg(d: std_logic_vector(3 downto 0)) return std_logic_vector is
+  begin
+    case d is
+      when "0000" => return DIG_0;
+      when "0001" => return DIG_1;
+      when "0010" => return DIG_2;
+      when "0011" => return DIG_3;
+      when "0100" => return DIG_4;
+      when "0101" => return DIG_5;
+      when "0110" => return DIG_6;
+      when "0111" => return DIG_7;
+      when "1000" => return DIG_8;
+      when "1001" => return DIG_9;
+      when others => return DIG_E;
+    end case;
+  end function;
+begin
+  -- Selector: 00 suma, 10 resta, x1 multiplicación
+  IsMul <= Operator(0);
+  IsAdd <= '1' when Operator="00" else '0';
+  IsSub <= '1' when Operator="10" else '0';
+
+  -- Validación entradas (0..9) — si hay error, se imprimen 'E'
+  BadA <= ge10_4b(A);
+  BadB <= ge10_4b(B);
+  ShowErr <= BadA or BadB;
+
+  -- ===============================
+  -- ===== SUMA por −10 (0..19) ===
+  -- ===============================
+  SUMA0 : SUMADOR_4BITS port map(A=>A, B=>B, cin=>'0', S=>SumS, cout=>SumC);
+
+  -- R0 low/high (valor de 0..19 en nibbles)
+  R0L <= SumS;
+  R0H <= ("000" & SumC);
+
+  -- Intento de restar 10 (0x0A): si c10H_s='1' → hubo decena
+  SUB10L_S: SUMADOR_4BITS port map(A=>R0L, B=>"0101", cin=>'1',   S=>S10L_s, cout=>c10L_s);  -- low: ~1010 +1
+  SUB10H_S: SUMADOR_4BITS port map(A=>R0H, B=>"1111", cin=>c10L_s, S=>S10H_s, cout=>c10H_s); -- high: ~0000
+
+  UnitsSum <= S10L_s when c10H_s='1' else R0L;
+  TensSum  <= "0001" when c10H_s='1' else "0000";
+
+  -- ==========================================
+  -- ===== RESTA (enmascaramiento + carry) =====
+  -- ==========================================
+  -- Preparación del complemento a 2: A - B = A + (~B) + 1
+  B_inv <= not B;
+
+  -- RESTA0: A + (~B) + 1 → DiffS (resultado) y DiffC (carry-out)
+  --  - DiffC='1' → A≥B (no-negativo)
+  --  - DiffC='0' → A<B  (negativo)
+  RESTA0 : SUMADOR_4BITS port map(A=>A, B=>B_inv, cin=>'1', S=>DiffS, cout=>DiffC);
+
+  -- NegSub: bandera “signo” solo cuando estemos en resta y A<B
+  NegSub <= IsSub and (not DiffC);
+
+  -- DiffXor: magnitud base para |A-B|
+  DiffXor <= DiffS xor (NegSub & NegSub & NegSub & NegSub);
+
+  -- MAG_ABS_OPT: |A-B| = (DiffS xor (NegSub*1111)) + NegSub
+  MAG_ABS_OPT: SUMADOR_4BITS port map(A=>DiffXor, B=>"0000", cin=>NegSub, S=>UnitsSub, cout=>open);
+
+  -- ==================================
+  -- ===== MULTIPLICACIÓN (4x4) =======
+  -- ==================================
+  -- MUL0: Multiplicación binaria A * B -> M(7:0)
+  MUL0 : mult4x4_1164 port map(A=>A, B=>B, P=>M);
+
+  -- Conversión bin->BCD restando 80,40,20,10
+  -- Estado inicial: nibbles de M
+  signal_R0L: block
+    signal R0Lx, R0Hx : std_logic_vector(3 downto 0);
+  begin
+    R0Lx <= M(3 downto 0);
+    R0Hx <= M(7 downto 4);
+
+    -- -80 (0x50)
+    SUB80L: SUMADOR_4BITS port map(A=>R0Lx, B=>"1111", cin=>'1',   S=>S80L, cout=>c80L);
+    SUB80H: SUMADOR_4BITS port map(A=>R0Hx, B=>"1010", cin=>c80L,  S=>S80H, cout=>c80H);
+    R1L <= S80L when c80H='1' else R0Lx;
+    R1H <= S80H when c80H='1' else R0Hx;
+  end block;
+
+  -- -40 (0x28)
+  SUB40L: SUMADOR_4BITS port map(A=>R1L, B=>"0111", cin=>'1',   S=>S40L, cout=>c40L);
+  SUB40H: SUMADOR_4BITS port map(A=>R1H, B=>"1101", cin=>c40L,  S=>S40H, cout=>c40H);
+  R2L <= S40L when c40H='1' else R1L;
+  R2H <= S40H when c40H='1' else R1H;
+
+  -- -20 (0x14)
+  SUB20L: SUMADOR_4BITS port map(A=>R2L, B=>"1011", cin=>'1',   S=>S20L, cout=>c20L);
+  SUB20H: SUMADOR_4BITS port map(A=>R2H, B=>"1110", cin=>c20L,  S=>S20H, cout=>c20H);
+  R3L <= S20L when c20H='1' else R2L;
+  R3H <= S20H when c20H='1' else R2H;
+
+  -- -10 (0x0A) — S del nibble alto sin usar; solo interesa c10H
+  SUB10L: SUMADOR_4BITS port map(A=>R3L, B=>"0101", cin=>'1',   S=>S10L, cout=>c10L);
+  SUB10H: SUMADOR_4BITS port map(A=>R3H, B=>"1111", cin=>c10L,  S=>open, cout=>c10H);
+
+  -- Unidades definitivas tras intentar restar 10
+  R4L <= S10L when c10H='1' else R3L;
+
+  -- MulUnits y MulTens (0..9 y 0..8)
+  MulUnits <= R4L;
+  MulTens  <= (c80H & c40H & c20H & c10H);
+
+  -- ==========================================
+  -- ===== Selección final de BCD a imprimir ==
+  -- ==========================================
+  -- TensBCD:
+  --  - Suma: TensSum (0 o 1 por −10)
+  --  - Resta: "0000" (|A-B| ≤ 9)
+  --  - Multiplicación: MulTens (0..8)
+  TensBCD <= TensSum                       when IsAdd='1' else
+             MulTens                       when (IsMul='1' and MulTens/="0000") else
+             "0000";
+
+  -- UnitsBCD:
+  --  - Suma: UnitsSum
+  --  - Resta: UnitsSub
+  --  - Multiplicación: MulUnits
+  UnitsBCD <= UnitsSum when IsAdd='1' else
+              UnitsSub when IsSub='1' else
+              MulUnits when IsMul='1' else
+              "0000";
+
+  -- ===============================
+  -- ===== Salidas 7 segmentos =====
+  -- ===============================
+  -- sseg4: muestra A o 'E' si hay error de entrada
+  sseg4 <= dig_to_seg(A) when ShowErr='0' else DIG_E;  -- izquierda
+
+  -- sseg3: muestra B o 'E' si hay error de entrada
+  sseg3 <= dig_to_seg(B) when ShowErr='0' else DIG_E;
+
+  -- sseg2: prioridad de lo que se muestra (de arriba hacia abajo):
+  --   1) Error (DIG_E) si ShowErr='1'
+  --   2) Signo negativo (DIG_MINUS) si Resta y NegSub='1'
+  --   3) Decena de Suma (si TensSum="0001")
+  --   4) Decenas de Multiplicación (si MulTens ≠ "0000")
+  --   5) Apagado (DIG_OFF) en otros casos
+  sseg2 <= DIG_E                 when ShowErr='1' else
+           DIG_MINUS             when (IsSub='1' and NegSub='1') else
+           dig_to_seg(TensSum)   when (IsAdd='1' and TensSum="0001") else
+           dig_to_seg(MulTens)   when (IsMul='1' and MulTens/="0000") else
+           DIG_OFF;
+
+  -- sseg1: muestra unidades del resultado, o 'E' si hay error de entrada
+  sseg1 <= dig_to_seg(UnitsBCD) when ShowErr='0' else DIG_E; -- derecha
+end architecture;
