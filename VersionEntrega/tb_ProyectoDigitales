@@ -1,0 +1,84 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_ProyectoDigitales is
+end tb_ProyectoDigitales;
+
+architecture behavior of tb_ProyectoDigitales is
+  -- Signals for the inputs and outputs
+  signal A        : STD_LOGIC_VECTOR(3 downto 0);
+  signal B        : STD_LOGIC_VECTOR(3 downto 0);
+  signal Operator : STD_LOGIC_VECTOR(1 downto 0);
+  signal sseg1    : STD_LOGIC_VECTOR(6 downto 0);
+  signal sseg2    : STD_LOGIC_VECTOR(6 downto 0);
+  signal sseg3    : STD_LOGIC_VECTOR(6 downto 0);
+  signal sseg4    : STD_LOGIC_VECTOR(6 downto 0);
+
+  -- Instantiate the Unit Under Test (UUT)
+  component ProyectoDigitales
+    port(
+      A        : in  STD_LOGIC_VECTOR(3 downto 0);
+      B        : in  STD_LOGIC_VECTOR(3 downto 0);
+      Operator : in  STD_LOGIC_VECTOR(1 downto 0);
+      sseg1    : out STD_LOGIC_VECTOR(6 downto 0);
+      sseg2    : out STD_LOGIC_VECTOR(6 downto 0);
+      sseg3    : out STD_LOGIC_VECTOR(6 downto 0);
+      sseg4    : out STD_LOGIC_VECTOR(6 downto 0)
+    );
+  end component;
+
+begin
+  -- Instantiate the UUT
+  uut: ProyectoDigitales
+    port map (
+      A => A,
+      B => B,
+      Operator => Operator,
+      sseg1 => sseg1,
+      sseg2 => sseg2,
+      sseg3 => sseg3,
+      sseg4 => sseg4
+    );
+
+  -- Test process
+  stim_proc: process
+  begin
+    -- Test Suma (Operator = "00")
+    report "--- Testing Addition ---";
+    for i in 0 to 9 loop
+      for j in 0 to 9 loop
+        -- La forma más limpia de convertir un entero a std_logic_vector
+        A <= std_logic_vector(to_unsigned(i, 4));
+        B <= std_logic_vector(to_unsigned(j, 4));
+        Operator <= "00";  -- suma
+        wait for 10 ns;
+      end loop;
+    end loop;
+
+    -- Test Resta (Operator = "10")
+    report "--- Testing Subtraction ---";
+    for i in 0 to 9 loop
+      for j in 0 to 9 loop
+        A <= std_logic_vector(to_unsigned(i, 4));
+        B <= std_logic_vector(to_unsigned(j, 4));
+        Operator <= "10";  -- resta
+        wait for 10 ns;
+      end loop;
+    end loop;
+    
+    -- Test Multiplicación (Operator = "01" o "11")
+    report "--- Testing Multiplication ---";
+    for i in 0 to 9 loop
+      for j in 0 to 9 loop
+        A <= std_logic_vector(to_unsigned(i, 4));
+        B <= std_logic_vector(to_unsigned(j, 4));
+        Operator <= "01";  -- multiplicación
+        wait for 10 ns;
+      end loop;
+    end loop;
+
+    report "--- Simulation Finished ---";
+    wait;
+  end process;
+end behavior;
