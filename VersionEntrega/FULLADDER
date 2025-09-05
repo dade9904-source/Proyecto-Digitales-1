@@ -1,0 +1,18 @@
+-- Definición del archivo punto4_4.vhdl
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity FULLADDER is
+    Port ( A   : in  STD_LOGIC;
+           B   : in  STD_LOGIC;
+           cin : in  STD_LOGIC;
+           s   : out STD_LOGIC;
+			  cout: out STD_LOGIC);
+end FULLADDER;
+
+architecture Behavioral of FULLADDER is
+begin
+    -- Implementacion de la operacion XOR
+    s <= A XOR B XOR cin;
+	 cout <= (A AND B)OR(B AND cin) OR (A AND cin);
+end Behavioral;
