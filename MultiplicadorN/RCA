@@ -1,0 +1,28 @@
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity RippleCarryAdder is
+    generic (
+        W : integer := 100
+    );
+    port (
+        A   : in  STD_LOGIC_VECTOR(W-1 downto 0);
+        B   : in  STD_LOGIC_VECTOR(W-1 downto 0);
+        SUM : out STD_LOGIC_VECTOR(W-1 downto 0)
+    );
+end entity;
+
+architecture structural of RippleCarryAdder is
+    signal carry : STD_LOGIC_VECTOR(W downto 0);
+
+begin
+    carry(0) <= '0';
+
+    GEN_FULL_ADDERS : for i in 0 to W-1 generate
+    begin
+        SUM(i) <= A(i) xor B(i) xor carry(i);
+        carry(i+1) <= (A(i) and B(i)) or (A(i) and carry(i)) or (B(i) and carry(i));
+    end generate GEN_FULL_ADDERS;
+
+end architecture;
