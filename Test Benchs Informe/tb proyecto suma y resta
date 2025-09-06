@@ -1,0 +1,117 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_ProyectoDigitales is
+end tb_ProyectoDigitales;
+
+architecture behavior of tb_ProyectoDigitales is
+  -- Señales para conectar al DUT
+  signal A         : STD_LOGIC_VECTOR(3 downto 0);
+  signal B         : STD_LOGIC_VECTOR(3 downto 0);
+  signal Operator  : STD_LOGIC_VECTOR(1 downto 0);
+  signal sseg1     : STD_LOGIC_VECTOR(6 downto 0);
+  signal sseg2     : STD_LOGIC_VECTOR(6 downto 0);
+  signal sseg3     : STD_LOGIC_VECTOR(6 downto 0);
+  signal sseg4     : STD_LOGIC_VECTOR(6 downto 0);
+  -- Señales internas del DUT (asumí que las expusiste en tu entidad)
+  signal tb_Tens   : STD_LOGIC_VECTOR(3 downto 0);
+  signal tb_Units  : STD_LOGIC_VECTOR(3 downto 0);
+  signal tb_Sign   : STD_LOGIC;
+
+  -- Instancia del Componente bajo prueba (UUT)
+  component ProyectoDigitales
+    port(
+      A         : in  STD_LOGIC_VECTOR(3 downto 0);
+      B         : in  STD_LOGIC_VECTOR(3 downto 0);
+      Operator  : in  STD_LOGIC_VECTOR(1 downto 0);
+      sseg1     : out STD_LOGIC_VECTOR(6 downto 0);
+      sseg2     : out STD_LOGIC_VECTOR(6 downto 0);
+      sseg3     : out STD_LOGIC_VECTOR(6 downto 0);
+      sseg4     : out STD_LOGIC_VECTOR(6 downto 0);
+      Tens_out  : out STD_LOGIC_VECTOR(3 downto 0);
+      Units_out : out STD_LOGIC_VECTOR(3 downto 0);
+      Sign_out  : out STD_LOGIC
+    );
+  end component;
+
+begin
+  -- Instancia del UUT
+  uut: ProyectoDigitales
+    port map (
+      A         => A,
+      B         => B,
+      Operator  => Operator,
+      sseg1     => sseg1,
+      sseg2     => sseg2,
+      sseg3     => sseg3,
+      sseg4     => sseg4,
+      Tens_out  => tb_Tens,
+      Units_out => tb_Units,
+      Sign_out  => tb_Sign
+    );
+
+  -- Proceso de estímulos y verificación
+  stim_proc: process
+    variable expected_result, actual_result : integer;
+  begin
+    report "--- Iniciando Test ---";
+
+    -- 5 casos de SUMA
+    report "--- Probando 5 SUMAS ---";
+    for idx in 0 to 4 loop
+      A <= std_logic_vector(to_unsigned(idx, 4));
+      B <= std_logic_vector(to_unsigned(idx+1, 4));
+      Operator <= "00"; -- suma
+      wait for 10 ns;
+
+      expected_result := idx + (idx+1);
+      actual_result   := to_integer(unsigned(tb_Tens)) * 10 + to_integer(unsigned(tb_Units));
+
+      report "Suma: " & integer'image(idx) & " + " & integer'image(idx+1) &
+             " = " & integer'image(actual_result) &
+             " (esperado " & integer'image(expected_result) & ")";
+    end loop;
+
+    -- 5 casos de RESTA positivas (A >= B)
+    report "--- Probando 5 RESTAS positivas ---";
+    for idx in 0 to 4 loop
+      A <= std_logic_vector(to_unsigned(idx+5, 4));
+      B <= std_logic_vector(to_unsigned(idx, 4));
+      Operator <= "10"; -- resta
+      wait for 10 ns;
+
+      expected_result := (idx+5) - idx;
+      actual_result   := to_integer(unsigned(tb_Tens)) * 10 + to_integer(unsigned(tb_Units));
+      if tb_Sign = '1' then
+        actual_result := -actual_result;
+      end if;
+
+      report "Resta: " & integer'image(idx+5) & " - " & integer'image(idx) &
+             " = " & integer'image(actual_result) &
+             " (esperado " & integer'image(expected_result) & ")";
+    end loop;
+
+    -- 5 casos de RESTA negativas (A < B)
+    report "--- Probando 5 RESTAS negativas ---";
+    for idx in 0 to 4 loop
+      A <= std_logic_vector(to_unsigned(idx, 4));
+      B <= std_logic_vector(to_unsigned(idx+5, 4));
+      Operator <= "10"; -- resta
+      wait for 10 ns;
+
+      expected_result := idx - (idx+5);
+      actual_result   := to_integer(unsigned(tb_Tens)) * 10 + to_integer(unsigned(tb_Units));
+      if tb_Sign = '1' then
+        actual_result := -actual_result;
+      end if;
+
+      report "Resta: " & integer'image(idx) & " - " & integer'image(idx+5) &
+             " = " & integer'image(actual_result) &
+             " (esperado " & integer'image(expected_result) & ")";
+    end loop;
+
+    report "--- Simulación Finalizada ---";
+    wait;
+  end process;
+end behavior;
