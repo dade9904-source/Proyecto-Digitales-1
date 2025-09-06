@@ -1,0 +1,64 @@
+-- Archivo: MultN.vhd
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity MultN is
+    generic (
+        N : integer := 20
+    );
+    port (
+        A : in  STD_LOGIC_VECTOR(N-1 downto 0);
+        B : in  STD_LOGIC_VECTOR(N-1 downto 0);
+        P : out STD_LOGIC_VECTOR(2*N-1 downto 0)
+    );
+end entity;
+
+architecture structural of MultN is
+    constant W : integer := 2*N;
+    type T_SUM_ARRAY is array (0 to N) of STD_LOGIC_VECTOR(W-1 downto 0);
+    signal partial_sums : T_SUM_ARRAY;
+    signal extended_a : STD_LOGIC_VECTOR(W-1 downto 0);
+
+    -- Constante de ceros para usar en la concatenación.
+    constant ZEROS : STD_LOGIC_VECTOR(W-1 downto 0) := (others => '0');
+
+    component RippleCarryAdder is
+        generic (W : integer);
+        port (
+            A   : in  STD_LOGIC_VECTOR(W-1 downto 0);
+            B   : in  STD_LOGIC_VECTOR(W-1 downto 0);
+            SUM : out STD_LOGIC_VECTOR(W-1 downto 0)
+        );
+    end component;
+
+begin
+    extended_a(N-1 downto 0) <= A;
+    extended_a(W-1 downto N) <= (others => '0');
+
+    partial_sums(0) <= (others => '0');
+
+    GEN_STAGES : for i in 0 to N-1 generate
+        signal partial_product : STD_LOGIC_VECTOR(W-1 downto 0);
+        signal shifted_a       : STD_LOGIC_VECTOR(W-1 downto 0);
+    begin
+
+        shifted_a <= extended_a(W-1-i downto 0) & ZEROS(i-1 downto 0);
+
+        GEN_BITWISE_AND : for k in 0 to W-1 generate
+        begin
+            partial_product(k) <= shifted_a(k) and B(i);
+        end generate GEN_BITWISE_AND;
+
+        ADDER_STAGE_i : RippleCarryAdder
+            generic map (W => W)
+            port map (
+                A   => partial_sums(i),
+                B   => partial_product,
+                SUM => partial_sums(i+1)
+            );
+            
+    end generate GEN_STAGES;
+
+    P <= partial_sums(N);
+
+end architecture;
