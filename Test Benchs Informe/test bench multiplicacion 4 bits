@@ -1,0 +1,121 @@
+-- ============================================================
+-- Testbench: 20 multiplicaciones variadas (incluye casos por 0)
+-- ============================================================
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+entity tb_mult4x4 is
+end entity;
+
+architecture tb of tb_mult4x4 is
+  -- DUT
+  component mult4x4_1164
+    port(
+      A : in  STD_LOGIC_VECTOR(3 downto 0);
+      B : in  STD_LOGIC_VECTOR(3 downto 0);
+      P : out STD_LOGIC_VECTOR(7 downto 0)
+    );
+  end component;
+
+  signal A    : STD_LOGIC_VECTOR(3 downto 0) := (others => '0');
+  signal B    : STD_LOGIC_VECTOR(3 downto 0) := (others => '0');
+  signal P    : STD_LOGIC_VECTOR(7 downto 0);
+
+  -- ========= Utilidades SIN numeric_std =========
+  function to_slv4(n : integer) return STD_LOGIC_VECTOR is
+    variable v : STD_LOGIC_VECTOR(3 downto 0);
+  begin
+    for i in 0 to 3 loop
+      if ((n / (2**i)) mod 2) = 1 then v(i) := '1'; else v(i) := '0'; end if;
+    end loop;
+    return v;
+  end function;
+
+  function to_slv8(n : integer) return STD_LOGIC_VECTOR is
+    variable v : STD_LOGIC_VECTOR(7 downto 0);
+  begin
+    for i in 0 to 7 loop
+      if ((n / (2**i)) mod 2) = 1 then v(i) := '1'; else v(i) := '0'; end if;
+    end loop;
+    return v;
+  end function;
+
+  function slv8_to_int(s : STD_LOGIC_VECTOR(7 downto 0)) return integer is
+    variable acc : integer := 0;
+  begin
+    for i in 0 to 7 loop
+      if s(i) = '1' then acc := acc + 2**i; end if;
+    end loop;
+    return acc;
+  end function;
+
+  -- ========= Lista de 20 casos (A,B) en enteros 0..9 =========
+  type int_arr is array (natural range <>) of integer;
+  constant A_vec : int_arr(0 to 19) := (
+    0, 0, 7, 1, 9, 2, 9, 3, 7, 4,
+    8, 5, 6, 8, 9, 3, 2, 5, 4, 9
+  );
+  constant B_vec : int_arr(0 to 19) := (
+    0, 5, 0, 9, 1, 9, 2, 7, 3, 8,
+    4, 5, 6, 8, 9, 3, 5, 2, 9, 4
+  );
+  -- Casos seleccionados:
+  -- 0:0*0  1:0*5  2:7*0  3:1*9  4:9*1
+  -- 5:2*9  6:9*2  7:3*7  8:7*3  9:4*8
+  -- 10:8*4 11:5*5 12:6*6 13:8*8 14:9*9
+  -- 15:3*3 16:2*5 17:5*2 18:4*9 19:9*4
+
+begin
+  -- Instancia del DUT
+  DUT: mult4x4_1164
+    port map (
+      A => A,
+      B => B,
+      P => P
+    );
+
+  -- Estímulos y verificación (20 casos)
+  stim_proc : process
+    variable idx     : integer;
+    variable a_i, b_i: integer;
+    variable exp_val : integer;
+    variable errors  : integer := 0;
+  begin
+    report "--- Iniciando 20 pruebas de multiplicación ---";
+
+    for idx in 0 to 19 loop
+      a_i := A_vec(idx);
+      b_i := B_vec(idx);
+
+      A <= to_slv4(a_i);
+      B <= to_slv4(b_i);
+      wait for 10 ns;
+
+      exp_val := a_i * b_i;
+
+      -- Verificación
+      assert P = to_slv8(exp_val)
+        report "FALLO: A=" & integer'image(a_i) &
+               " B=" & integer'image(b_i) &
+               " esperado=" & integer'image(exp_val) &
+               " obtenido=" & integer'image(slv8_to_int(P))
+        severity error;
+
+      if P /= to_slv8(exp_val) then
+        errors := errors + 1;
+      else
+        report "OK  : " & integer'image(a_i) & " * " & integer'image(b_i) &
+               " = " & integer'image(exp_val);
+      end if;
+    end loop;
+
+    if errors = 0 then
+      assert false report "OK: 20 casos verificados, sin errores." severity note;
+    else
+      assert false report "Completado con " & integer'image(errors) & " errores." severity warning;
+    end if;
+
+    wait;
+  end process;
+
+end architecture;
