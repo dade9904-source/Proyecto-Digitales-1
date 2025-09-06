@@ -1,0 +1,131 @@
+-- Testbench modificado para un multiplicador de 50 bits.
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+
+entity tb_MultN is
+end entity;
+
+architecture test of tb_MultN is
+    -- Probando un diseño de 50 bits
+    constant C_N_BITS : integer := 50;
+    constant C_P_BITS : integer := 2 * C_N_BITS;
+
+    component MultN is
+        generic (N : integer := 20);
+        port (
+            A : in  STD_LOGIC_VECTOR(N-1 downto 0);
+            B : in  STD_LOGIC_VECTOR(N-1 downto 0);
+            P : out STD_LOGIC_VECTOR(2*N-1 downto 0)
+        );
+    end component;
+
+    signal s_A : STD_LOGIC_VECTOR(C_N_BITS-1 downto 0) := (others => '0');
+    signal s_B : STD_LOGIC_VECTOR(C_N_BITS-1 downto 0) := (others => '0');
+    signal s_P : STD_LOGIC_VECTOR(C_P_BITS-1 downto 0);
+
+begin
+    DUT_MultN : MultN
+        generic map (N => C_N_BITS)
+        port map (A => s_A, B => s_B, P => s_P);
+
+    STIMULUS : process
+        -- Variable para calcular resultados esperados complejos.
+        variable v_expected_p : unsigned(C_P_BITS-1 downto 0);
+        -- Variable para guardar un resultado y usarlo en una comparación posterior.
+        variable v_temp_p : unsigned(C_P_BITS-1 downto 0);
+    begin
+        report "--- Iniciando simulación del multiplicador de " & integer'image(C_N_BITS) & " bits ---";
+
+        -- Caso de prueba 1: Propiedad conmutativa con Cero (0x5 vs 5x0)
+        report "Caso 1a: A = 0, B = 5  (Probando conmutatividad)";
+        s_A <= std_logic_vector(to_unsigned(0, C_N_BITS));
+        s_B <= std_logic_vector(to_unsigned(5, C_N_BITS));
+        wait for 100 ns;
+        report "Resultado P = " & integer'image(to_integer(unsigned(s_P)));
+        assert (to_integer(unsigned(s_P)) = 0) report "Fallo en Caso 1a" severity error;
+
+        report "Caso 1b: A = 5, B = 0  (Probando conmutatividad)";
+        s_A <= std_logic_vector(to_unsigned(5, C_N_BITS));
+        s_B <= std_logic_vector(to_unsigned(0, C_N_BITS));
+        wait for 100 ns;
+        report "Resultado P = " & integer'image(to_integer(unsigned(s_P)));
+        assert (to_integer(unsigned(s_P)) = 0) report "Fallo en Caso 1b" severity error;
+        
+        -- Caso de prueba 2: Multiplicar por uno
+        report "Caso 2: A = 12345, B = 1";
+        s_A <= std_logic_vector(to_unsigned(12345, C_N_BITS));
+        s_B <= std_logic_vector(to_unsigned(1, C_N_BITS));
+        wait for 100 ns;
+        report "Resultado P = " & integer'image(to_integer(unsigned(s_P)));
+        assert (to_integer(unsigned(s_P)) = 12345) report "Fallo en Caso 2" severity error;
+        
+        -- Caso de prueba 3: Multiplicación normal
+        report "Caso 3: A = 1000, B = 2000";
+        s_A <= std_logic_vector(to_unsigned(1000, C_N_BITS));
+        s_B <= std_logic_vector(to_unsigned(2000, C_N_BITS));
+        wait for 100 ns;
+        report "Resultado P = " & integer'image(to_integer(unsigned(s_P)));
+        assert (to_integer(unsigned(s_P)) = 2000000) report "Fallo en Caso 3" severity error;
+
+        -- Caso de prueba 4: Valor máximo de 50 bits por 2
+        report "Caso 4: A = (2^50 - 1), B = 2";
+        s_A <= (others => '1'); -- A = 2^50 - 1
+        s_B <= std_logic_vector(to_unsigned(2, C_N_BITS));
+        wait for 100 ns;
+        
+        v_expected_p := (others => '0');
+        v_expected_p(C_N_BITS downto 1) := (others => '1');
+        assert unsigned(s_P) = v_expected_p report "Fallo en Caso 4" severity error;
+        report "Resultado de Caso 4 verificado a nivel de vector.";
+        
+        -- ################## INICIO DE NUEVOS CASOS DE PRUEBA ##################
+
+        -- Caso de prueba 5: Conmutatividad con números distintos de cero (A*B = B*A)
+        report "Caso 5a: A = 250, B = 100 (Probando conmutatividad)";
+        s_A <= std_logic_vector(to_unsigned(250, C_N_BITS));
+        s_B <= std_logic_vector(to_unsigned(100, C_N_BITS));
+        wait for 100 ns;
+        v_temp_p := unsigned(s_P); -- Guardamos el primer resultado
+        assert (to_integer(v_temp_p) = 25000) report "Fallo en Caso 5a" severity error;
+        
+        report "Caso 5b: A = 100, B = 250 (Probando conmutatividad)";
+        s_A <= std_logic_vector(to_unsigned(100, C_N_BITS));
+        s_B <= std_logic_vector(to_unsigned(250, C_N_BITS));
+        wait for 100 ns;
+        assert unsigned(s_P) = v_temp_p report "Fallo en Caso 5b: El resultado no es el mismo que en 5a" severity error;
+        report "Propiedad conmutativa verificada.";
+        
+        -- Caso de prueba 6: Multiplicación por una potencia de 2 (equivale a un shift)
+        report "Caso 6: A = 123, B = 16 (123 * 2^4)";
+        s_A <= std_logic_vector(to_unsigned(123, C_N_BITS));
+        s_B <= std_logic_vector(to_unsigned(16, C_N_BITS));
+        wait for 100 ns;
+        
+        -- El resultado esperado es 123 desplazado 4 bits a la izquierda.
+        v_expected_p := resize(shift_left(to_unsigned(123, C_N_BITS), 4), C_P_BITS);
+        assert unsigned(s_P) = v_expected_p report "Fallo en Caso 6" severity error;
+        report "Resultado P = " & integer'image(to_integer(unsigned(s_P))) & " (Verificado por desplazamiento)";
+        
+        -- Caso de prueba 7: Multiplicación de valores máximos
+        report "Caso 7: A = (2^50 - 1), B = (2^50 - 1)";
+        s_A <= (others => '1');
+        s_B <= (others => '1');
+        wait for 100 ns;
+
+        -- El resultado esperado es (2^N - 1)^2 = 2^(2N) - 2^(N+1) + 1
+        -- Para N=50, esto es 2^100 - 2^51 + 1.
+        -- En binario de 100 bits: 49 '1's, 50 '0's, y un '1' al final.
+        v_expected_p := (others => '0'); -- Limpiamos la variable
+        v_expected_p(C_P_BITS-1 downto C_N_BITS+1) := (others => '1'); -- P(99 downto 51) <= '1'
+        v_expected_p(0) := '1';
+        assert unsigned(s_P) = v_expected_p report "Fallo en Caso 7" severity error;
+        report "Multiplicación de valores máximos verificada.";
+
+        -- #################### FIN DE NUEVOS CASOS DE PRUEBA ###################
+        
+        report "--- Simulación finalizada exitosamente ---";
+        wait;
+    end process STIMULUS;
+
+end architecture;
